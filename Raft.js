@@ -5,14 +5,14 @@ let index;
 let id;
 
 let logs = [[0, 'EMPTY']];
-let commitIndex = 0;
+let commitIndex = 1;
 
 let state = 'follower';
 let stateArgs = {};
 
 let term = 0;
 
-const electionTimeout = Math.random() * 500;
+const electionTimeout = Math.random() * 500 + 500;
 
 let timeout;
 
@@ -39,7 +39,20 @@ function stateChange(changeState, args = {}) {
             electionTime();
         },
         leader: () => {
-            stateArgs.heartbeat = setInterval(() => {}, 750);
+            clearTimeout(timeout);
+            stateArgs.heartbeat = setInterval(() => {
+                parentPort.postMessage([
+                    'messageBroadcast',
+                    term,
+                    'appendEntries',
+                    {
+                        prevLogIndex: logs.length - 1,
+                        prevLogTerm: logs[logs.length - 1][0],
+                        entries: [],
+                        leaderCommit: commitIndex,
+                    },
+                ]);
+            }, 400);
         },
         follower: () => {
             electionTime();
@@ -54,7 +67,7 @@ function handler(message) {
         case 'propose':
             if (state === 'leader') {
                 logs.push([term, message.shift()]);
-                parentPort.sendMessage([
+                parentPort.postMessage([
                     'messageBroadcast',
                     term,
                     'appendEntries',
@@ -87,14 +100,20 @@ function handler(message) {
                     },
                     leader: () => {},
                     follower: () => {
-                        stateArgs.electionTime();
+                        electionTime();
                         if (type === 'appendEntries') {
                             const msg = message[0];
                             if (otherTerm < term) return;
-                            if (logs[msg.prevLogIndex][0] !== msg.prevLogTerm)
+                            if (
+                                logs[msg.prevLogIndex] == null ||
+                                logs[msg.prevLogIndex][0] !== msg.prevLogTerm
+                            ) {
+                                console.log('Invalid prevLogIndex: ');
+                                console.log(msg);
                                 return;
+                            }
                             for (let i = 0; i < msg.entries.length; i++) {
-                                const actualIndex = i + msg.prevLogIndex - 1;
+                                const actualIndex = i + msg.prevLogIndex + 1;
                                 if (
                                     actualIndex < logs.length &&
                                     logs[actualIndex] !== msg.entries[i]
@@ -111,7 +130,7 @@ function handler(message) {
                         } else if (type === 'requestVote') {
                             const msg = message[0];
                             if (otherTerm < term)
-                                return parentPort.sendMessage([
+                                return parentPort.postMessage([
                                     'message',
                                     author,
                                     term,
@@ -128,13 +147,14 @@ function handler(message) {
                                     (termDiff === 0 &&
                                         msg.lastLogIndex >= logs.length - 1)
                                 ) {
-                                    parentPort.sendMessage([
+                                    parentPort.postMessage([
                                         'message',
                                         author,
                                         term,
                                         'grantVote',
                                     ]);
                                 }
+                                stateArgs.votedFor = author;
                             }
                         }
                     },

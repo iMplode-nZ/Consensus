@@ -19,15 +19,16 @@ function createRouter(outNodes) {
 
     const router = {
         sendTo(orig, msg, id) {
+            const msgts = JSON.stringify(msg, null, 4);
             if (toDrop[orig]) {
-                console.log(`Send: ${orig} -| (${msg})    ${id}`);
+                //console.log(`Send: ${orig} -| (${msgts})    ${id}`);
                 toDrop[orig]--;
             } else if (dropTo[id]) {
-                console.log(`Send: ${orig} ---(${msg})-|  ${id}`);
+                //console.log(`Send: ${orig} ---(${msgts})-|  ${id}`);
                 dropTo[id]--;
             } else {
                 if (!process.argv.includes('--nosend'))
-                    console.log(`Send: ${orig} ---(${msg})--> ${id}`);
+                    console.log(`Send: ${orig} ---(${msgts})--> ${id}`);
                 nodesByName[id].receive(orig, msg);
             }
         },
@@ -121,19 +122,19 @@ function createNode(location, name) {
     };
 }
 
-function initNodesAndRouter(location, names, settings) {
-    const nodes = names.map((x) => createNode(location, x));
-    const router = createRouter(nodes);
+function initNodesAndRouter(location, names) {
+    const nodes = names.map((x) => [createNode(location, x[0]), x[1]]);
+    const router = createRouter(nodes.map((x) => x[0]));
     const nodesByName = toNamed(nodes);
     nodes.forEach((x) =>
-        x.init(
-            nodes.map((a) => a.id),
-            settings
+        x[0].init(
+            nodes.map((a) => a[0].id),
+            x[1]
         )
     );
     return {
         router: router,
-        nodes: nodes,
+        nodes: nodes.map((x) => x[0]),
         nn: nodesByName,
     };
 }
