@@ -12,8 +12,6 @@ let stateArgs = {};
 
 let term = 0;
 
-let currentProposal;
-
 const electionTimeout = Math.random() * 500;
 
 let timeout;
@@ -28,29 +26,25 @@ function electionTime() {
 function stateChange(changeState, args = {}) {
     console.log(`${id} changed to ${changeState}.`);
     const stateDeactivate = {
-        'candidate': () => {},
-        'leader': () => {
+        candidate: () => {},
+        leader: () => {
             clearInterval(stateArgs.heartbeat);
         },
-        'follower': () => {}
-    }
+        follower: () => {},
+    };
     stateDeactivate[state]();
     state = changeState;
     const stateActivate = {
-        'candidate': () => {
+        candidate: () => {
             electionTime();
         },
-        'leader': () => {
-            propose();
-            stateArgs.heartbeat = setInterval(() => {
-
-            }, 750);
+        leader: () => {
+            stateArgs.heartbeat = setInterval(() => {}, 750);
         },
-        'follower': () => {
-            propose();
+        follower: () => {
             electionTime();
-        }
-    }
+        },
+    };
     stateActivate[state]();
     stateArgs = args;
 }
@@ -60,60 +54,93 @@ function handler(message) {
         case 'propose':
             if (state === 'leader') {
                 logs.push([term, message.shift()]);
-                parentPort.sendMessage(['messageBroadcast', term, 'appendEntries', {
-                    prevLogIndex: logs.length - 2,
-                    prevLogTerm: logs[logs.length - 2][0],
-                    entries: logs.slice(commitIndex),
-                    leaderCommit: commitIndex
-                }]);
+                parentPort.sendMessage([
+                    'messageBroadcast',
+                    term,
+                    'appendEntries',
+                    {
+                        prevLogIndex: logs.length - 2,
+                        prevLogTerm: logs[logs.length - 2][0],
+                        entries: logs.slice(commitIndex),
+                        leaderCommit: commitIndex,
+                    },
+                ]);
             } else if (state === 'follower') {
                 console.log(`${id}: The leader is ${stateArgs.leader}`);
             }
             break;
         case 'message':
-            const author = message.shift();
-            const otherTerm = message.shift();
-            const type = message.shift();
-            if (otherTerm > term) {
-                stateChange('follower');
-            }
-            const resolvers = {
-                'candidate': () => {
-                    if (otherTerm === term) {
-                        term = otherTerm;
-                        stateChange('follower');
-                        resolvers[state]();
-                    }
-                },
-                'leader': () => {
-                },
-                'follower': () => {
-                    stateArgs.electionTime();
-                    if (type === 'appendEntries') {
-                        const msg = message[0];
-                        if (otherTerm < term) return;
-                        if (logs[msg.prevLogIndex][0] !== msg.prevLogTerm) return;
-                        for (let i = 0; i < msg.entries.length; i++) {
-                            const actualIndex = i + msg.prevLogIndex - 1;
-                            if (actualIndex < logs.length && logs[actualIndex] !== msg.entries[i]) {
-                                logs = logs.slice(0, actualIndex);
-                            }
-                            logs[actualIndex] = msg.entries[i];
-                        }
-                        if (msg.leaderCommit > commitIndex) commitIndex = min(msg.leaderCommit, msg.prevLogIndex + msg.entries.length);
-                    } else if (type === 'requestVote') {
-                        const msg = message[0];
-                        if (otherTerm < term) return parentPort.sendMessage(['message', author, term, 'updateTerm']);
-                        if (stateArgs.votedFor == null || stateArgs.votedFor === author) {
-                            const termDiff = msg.lastLog[0] > logs[logs.length - 1][0];
-                            if (termDiff > 0 || (termDiff === 0 && msg.lastLogIndex >= logs.length - 1)) {
-                                parentPort.sendMessage(['message', author, term, 'grantVote']);
-                            }
-                        }
-                    }
+            {
+                const author = message.shift();
+                const otherTerm = message.shift();
+                const type = message.shift();
+                if (otherTerm > term) {
+                    stateChange('follower');
                 }
+                const resolvers = {
+                    candidate: () => {
+                        if (otherTerm === term) {
+                            term = otherTerm;
+                            stateChange('follower');
+                            resolvers[state]();
+                        }
+                    },
+                    leader: () => {},
+                    follower: () => {
+                        stateArgs.electionTime();
+                        if (type === 'appendEntries') {
+                            const msg = message[0];
+                            if (otherTerm < term) return;
+                            if (logs[msg.prevLogIndex][0] !== msg.prevLogTerm)
+                                return;
+                            for (let i = 0; i < msg.entries.length; i++) {
+                                const actualIndex = i + msg.prevLogIndex - 1;
+                                if (
+                                    actualIndex < logs.length &&
+                                    logs[actualIndex] !== msg.entries[i]
+                                ) {
+                                    logs = logs.slice(0, actualIndex);
+                                }
+                                logs[actualIndex] = msg.entries[i];
+                            }
+                            if (msg.leaderCommit > commitIndex)
+                                commitIndex = Math.min(
+                                    msg.leaderCommit,
+                                    msg.prevLogIndex + msg.entries.length
+                                );
+                        } else if (type === 'requestVote') {
+                            const msg = message[0];
+                            if (otherTerm < term)
+                                return parentPort.sendMessage([
+                                    'message',
+                                    author,
+                                    term,
+                                    'updateTerm',
+                                ]);
+                            if (
+                                stateArgs.votedFor == null ||
+                                stateArgs.votedFor === author
+                            ) {
+                                const termDiff =
+                                    msg.lastLog[0] > logs[logs.length - 1][0];
+                                if (
+                                    termDiff > 0 ||
+                                    (termDiff === 0 &&
+                                        msg.lastLogIndex >= logs.length - 1)
+                                ) {
+                                    parentPort.sendMessage([
+                                        'message',
+                                        author,
+                                        term,
+                                        'grantVote',
+                                    ]);
+                                }
+                            }
+                        }
+                    },
+                };
+                resolvers[state]();
             }
-            resolvers[state]();
             break;
         case 'current':
             parentPort.postMessage(['current', { logs, commitIndex }]);
