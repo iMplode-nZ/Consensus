@@ -21,10 +21,10 @@ function createRouter(outNodes) {
         sendTo(orig, msg, id) {
             const msgts = JSON.stringify(msg, null, 4);
             if (toDrop[orig]) {
-                //console.log(`Send: ${orig} -| (${msgts})    ${id}`);
+                console.log(`Send: ${orig} -| (${msgts})    ${id}`);
                 toDrop[orig]--;
             } else if (dropTo[id]) {
-                //console.log(`Send: ${orig} ---(${msgts})-|  ${id}`);
+                console.log(`Send: ${orig} ---(${msgts})-|  ${id}`);
                 dropTo[id]--;
             } else {
                 if (!process.argv.includes('--nosend'))
@@ -75,9 +75,8 @@ function createNode(location, name) {
             if (isPaused) return Promise.reject(new Error('Worker is Paused'));
             w.postMessage(['propose', proposal]);
             return new Promise((resolve) => {
-                w.postMessage(['finishPropose']);
                 const listener = (e) => {
-                    if (e[0] === 'finishedPropose') {
+                    if (e[0] === 'finishedPropose' && e[1] === proposal) {
                         w.off('message', listener);
                         resolve(e[1]);
                     }
